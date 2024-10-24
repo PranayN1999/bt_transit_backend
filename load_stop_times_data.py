@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from models import StopTime
 from database import engine
 from create_tables import create_tables
+from envConfig import GTFS_ROOT_FILE_PATH
 
 def load_stop_times_data():
   try:
     # Read stop_times.txt into a pandas DataFrame
-    df = pd.read_csv('C:/Users/prana/Desktop/Cross-Platform/BT_Transit_GTFS_Data/gtfs/stop_times.txt')
+    df = pd.read_csv(GTFS_ROOT_FILE_PATH + '/stop_times.txt')
 
     # Create a new session
     with Session(engine) as session:

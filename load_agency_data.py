@@ -3,10 +3,11 @@ from sqlalchemy.orm import Session
 from database import engine
 from models import Agency
 from create_tables import create_tables
+from envConfig import GTFS_ROOT_FILE_PATH
 
 def load_agency_data():
   # Read the agency.txt file into a pandas DataFrame
-  df = pd.read_csv('C:/Users/prana/Desktop/Cross-Platform/BT_Transit_GTFS_Data/gtfs/agency.txt')
+  df = pd.read_csv(GTFS_ROOT_FILE_PATH + '/agency.txt')
 
   # Create a new session
   with Session(engine) as session:
