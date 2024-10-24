@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Float, Time
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Time, Boolean, Date
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -94,3 +94,20 @@ class Shape(Base):
   shape_pt_sequence = Column(Integer, primary_key=True)
   shape_dist_traveled = Column(Float, nullable=True)
   eta_pattern_id = Column(String, nullable=True)
+
+
+class Calendar(Base):
+  __tablename__ = 'calendar'
+
+  service_id = Column(String, primary_key=True, index=True)
+  monday = Column(Boolean, nullable=False)
+  tuesday = Column(Boolean, nullable=False)
+  wednesday = Column(Boolean, nullable=False)
+  thursday = Column(Boolean, nullable=False)
+  friday = Column(Boolean, nullable=False)
+  saturday = Column(Boolean, nullable=False)
+  sunday = Column(Boolean, nullable=False)
+  start_date = Column(Date, nullable=False)
+  end_date = Column(Date, nullable=False)
+  service_name = Column(String, nullable=True)
+  eta_schedule_id = Column(String, nullable=True)
