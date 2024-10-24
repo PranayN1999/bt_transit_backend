@@ -1,12 +1,8 @@
 import pandas as pd
 from sqlalchemy.orm import Session
-from models import Base, StopTime
+from models import StopTime
 from database import engine
-
-def create_tables():
-  # Create all tables (if they don't exist)
-  Base.metadata.create_all(bind=engine)
-  print("Tables created successfully.")
+from create_tables import create_tables
 
 def load_stop_times_data():
   try:
