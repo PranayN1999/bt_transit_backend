@@ -33,3 +33,21 @@ class Route(Base):
   eta_corridor_id = Column(Integer, nullable=True)
 
   agency = relationship("Agency", back_populates="routes")
+
+
+class Stop(Base):
+  __tablename__ = 'stops'
+
+  stop_id = Column(String, primary_key=True, index=True)
+  stop_name = Column(String, nullable=False)
+  stop_lat = Column(String, nullable=False)
+  stop_lon = Column(String, nullable=False)
+  stop_code = Column(String, nullable=True)
+  stop_desc = Column(String, nullable=True)
+  zone_id = Column(String, nullable=True)
+  stop_url = Column(String, nullable=True)
+  location_type = Column(String, nullable=True)
+  parent_station = Column(String, nullable=True)
+  stop_timezone = Column(String, nullable=True)
+  wheelchair_boarding = Column(String, nullable=True)
+  eta_station_id = Column(String, nullable=True)
