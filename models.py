@@ -83,3 +83,14 @@ class Trip(Base):
   eta_train_id = Column(String, nullable=True)
   block_service_id = Column(String, nullable=True)
   block_name = Column(String, nullable=True)
+
+
+class Shape(Base):
+  __tablename__ = 'shapes'
+
+  shape_id = Column(String, primary_key=True, index=True)
+  shape_pt_lat = Column(String, nullable=False)
+  shape_pt_lon = Column(String, nullable=False)
+  shape_pt_sequence = Column(Integer, primary_key=True)
+  shape_dist_traveled = Column(Float, nullable=True)
+  eta_pattern_id = Column(String, nullable=True)
