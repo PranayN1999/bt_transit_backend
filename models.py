@@ -54,14 +54,32 @@ class Stop(Base):
 
 
 class StopTime(Base):
-    __tablename__ = 'stop_times'
+  __tablename__ = 'stop_times'
 
-    trip_id = Column(String, primary_key=True, index=True)
-    stop_id = Column(String, ForeignKey('stops.stop_id'), primary_key=True)
-    stop_sequence = Column(Integer, primary_key=True)
-    arrival_time = Column(Time, nullable=False)
-    departure_time = Column(Time, nullable=False)
-    drop_off_type = Column(Integer, nullable=True)
-    shape_dist_traveled = Column(Float, nullable=True)
-    timepoint = Column(Integer, nullable=True)
-    stop_headsign = Column(String, nullable=True)
+  trip_id = Column(String, primary_key=True, index=True)
+  stop_id = Column(String, ForeignKey('stops.stop_id'), primary_key=True)
+  stop_sequence = Column(Integer, primary_key=True)
+  arrival_time = Column(Time, nullable=False)
+  departure_time = Column(Time, nullable=False)
+  drop_off_type = Column(Integer, nullable=True)
+  shape_dist_traveled = Column(Float, nullable=True)
+  timepoint = Column(Integer, nullable=True)
+  stop_headsign = Column(String, nullable=True)
+
+
+class Trip(Base):
+  __tablename__ = 'trips'
+
+  route_id = Column(String, ForeignKey('routes.route_id'), nullable=False)
+  service_id = Column(String, nullable=False)
+  trip_id = Column(String, primary_key=True, index=True)
+  shape_id = Column(String, nullable=True)
+  trip_headsign = Column(String, nullable=True)
+  trip_short_name = Column(String, nullable=True)
+  direction_id = Column(String, nullable=True)
+  block_id = Column(String, nullable=True)
+  wheelchair_accessible = Column(String, nullable=True)
+  bikes_allowed = Column(String, nullable=True)
+  eta_train_id = Column(String, nullable=True)
+  block_service_id = Column(String, nullable=True)
+  block_name = Column(String, nullable=True)
