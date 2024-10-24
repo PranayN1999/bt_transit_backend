@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Float, Time
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -51,3 +51,17 @@ class Stop(Base):
   stop_timezone = Column(String, nullable=True)
   wheelchair_boarding = Column(String, nullable=True)
   eta_station_id = Column(String, nullable=True)
+
+
+class StopTime(Base):
+    __tablename__ = 'stop_times'
+
+    trip_id = Column(String, primary_key=True, index=True)
+    stop_id = Column(String, ForeignKey('stops.stop_id'), primary_key=True)
+    stop_sequence = Column(Integer, primary_key=True)
+    arrival_time = Column(Time, nullable=False)
+    departure_time = Column(Time, nullable=False)
+    drop_off_type = Column(Integer, nullable=True)
+    shape_dist_traveled = Column(Float, nullable=True)
+    timepoint = Column(Integer, nullable=True)
+    stop_headsign = Column(String, nullable=True)
