@@ -12,6 +12,7 @@ __pycache__/
 
 # Ignore Proto files
 *.proto
+gtfs_realtime_pb2.py
 
 # Ignore GTFS data folder
 /BT_Transit_GTFS_Data
