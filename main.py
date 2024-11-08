@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 from database import engine, SessionLocal
 from models import Base, Route, Stop, Shape, Trip, StopTime
 from fastapi.middleware.cors import CORSMiddleware
+from gtfs_realtime_pb2 import FeedMessage
+import requests
+from envConfig import GTFS_REAL_TIME_POSITION_UPDATES_URL, GTFS_REAL_TIME_POSITION_UPDATES_FILE_PATH, GTFS_REAL_TIME_TRIP_UPDATES_URL, GTFS_REAL_TIME_ALERTS_URL
+import traceback
 
 # Set up logging
 logging.basicConfig(level=logging.ERROR)
@@ -122,3 +126,127 @@ def get_all_routes_details(db: Session = Depends(get_db)):
         logger.error(f"Error fetching all route details: {e}")
         return {"error": "Failed to retrieve route details"}
 
+# Real-time data parsing function from .pb file
+def load_pb_file(file_path):
+  with open(file_path, "rb") as f:
+    feed = FeedMessage()
+    feed.ParseFromString(f.read())
+  return feed
+  
+# Real-time data fetching function with enhanced error logging
+def load_pb_from_url(url):
+    try:
+        response = requests.get(url)
+        print("response", response)
+        response.raise_for_status()
+        feed = FeedMessage()
+        feed.ParseFromString(response.content)
+        return feed
+    except Exception as e:
+        logger.error(f"Error loading data from URL {url}: {e}")
+        logger.debug(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Failed to load real-time data")
+
+# Real-time Positions Endpoint (without route query parameter)
+@app.get("/real-time-positions")
+def get_real_time_positions(db: Session = Depends(get_db)):
+    try:
+        # Load the real-time vehicle positions from the positions API
+        url = GTFS_REAL_TIME_POSITION_UPDATES_URL
+        feed = load_pb_from_url(url)
+
+        # Prepare the vehicle positions with route information
+        positions = []
+        for entity in feed.entity:
+            if entity.HasField("vehicle"):
+                vehicle_id = entity.vehicle.vehicle.id
+                trip_id = entity.vehicle.trip.trip_id
+                latitude = entity.vehicle.position.latitude
+                longitude = entity.vehicle.position.longitude
+                bearing = entity.vehicle.position.bearing
+                current_stop_sequence = entity.vehicle.current_stop_sequence
+                current_status = entity.vehicle.current_status
+
+                # Get route information for this trip_id
+                trip = db.query(Trip).filter(Trip.trip_id == trip_id).first()
+                if trip:
+                    route = db.query(Route).filter(Route.route_id == trip.route_id).first()
+                    if route:
+                        # Add the position data along with route details
+                        positions.append({
+                            "vehicle_id": vehicle_id,
+                            "trip_id": trip_id,
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "bearing": bearing,
+                            "current_stop_sequence": current_stop_sequence,
+                            "current_status": current_status,
+                            "route_id": route.route_id,
+                            "route_short_name": route.route_short_name,
+                            "route_long_name": route.route_long_name,
+                            "route_color": route.route_color
+                        })
+
+        return {"positions": positions}
+    except Exception as e:
+        logger.error(f"Error fetching real-time positions: {e}")
+        return {"error": "Failed to retrieve real-time positions"}
+
+# Real-time Trips Endpoint
+@app.get("/real-time-trips")
+def get_real_time_trips():
+    try:
+        url = GTFS_REAL_TIME_TRIP_UPDATES_URL
+        feed = load_pb_from_url(url)
+        trips = [
+            {
+                "trip_id": entity.trip_update.trip.trip_id,
+                "route_id": entity.trip_update.trip.route_id,
+                "start_time": entity.trip_update.trip.start_time,
+                "start_date": entity.trip_update.trip.start_date,
+                "stop_time_updates": [
+                    {
+                        "stop_id": update.stop_id,
+                        "arrival": update.arrival.time if update.HasField("arrival") else None,
+                        "departure": update.departure.time if update.HasField("departure") else None
+                    }
+                    for update in entity.trip_update.stop_time_update
+                ]
+            }
+            for entity in feed.entity if entity.HasField("trip_update")
+        ]
+        return {"trips": trips}
+    except Exception as e:
+        logger.error(f"Error fetching real-time trips: {e}")
+        logger.debug(traceback.format_exc())
+        return {"error": "Failed to retrieve real-time trips"}
+
+# Real-time Alerts Endpoint
+@app.get("/real-time-alerts")
+def get_real_time_alerts():
+    try:
+        url = GTFS_REAL_TIME_ALERTS_URL
+        feed = load_pb_from_url(url)
+        alerts = [
+            {
+                "alert_id": entity.id,
+                "cause": entity.alert.cause,
+                "effect": entity.alert.effect,
+                "header_text": entity.alert.header_text.translation[0].text if entity.alert.header_text.translation else None,
+                "description_text": entity.alert.description_text.translation[0].text if entity.alert.description_text.translation else None,
+                "informed_entity": [
+                    {
+                        "agency_id": informed.agency_id,
+                        "route_id": informed.route_id,
+                        "stop_id": informed.stop_id
+                    }
+                    for informed in entity.alert.informed_entity
+                ]
+            }
+            for entity in feed.entity if entity.HasField("alert")
+        ]
+        return {"alerts": alerts}
+    except Exception as e:
+        logger.error(f"Error fetching real-time alerts: {e}")
+        logger.debug(traceback.format_exc())
+        return {"error": "Failed to retrieve real-time alerts"}
