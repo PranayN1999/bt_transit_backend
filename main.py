@@ -1,16 +1,18 @@
 import logging
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import engine, SessionLocal
 from models import Base, Route, Stop, Shape, Trip, StopTime
-from fastapi.middleware.cors import CORSMiddleware
 from gtfs_realtime_pb2 import FeedMessage
 import requests
-from envConfig import GTFS_REAL_TIME_POSITION_UPDATES_URL, GTFS_REAL_TIME_POSITION_UPDATES_FILE_PATH, GTFS_REAL_TIME_TRIP_UPDATES_URL, GTFS_REAL_TIME_ALERTS_URL
+import json
+import asyncio
+from fastapi.middleware.cors import CORSMiddleware
+from envConfig import GTFS_REAL_TIME_POSITION_UPDATES_URL, GTFS_REAL_TIME_TRIP_UPDATES_URL, GTFS_REAL_TIME_ALERTS_URL
 import traceback
 
 # Set up logging
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
@@ -18,31 +20,29 @@ app = FastAPI()
 origins = ["*"]
 
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=origins,
-  allow_credentials=True,
-  allow_methods=["*"],
-  allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 Base.metadata.create_all(bind=engine)
 
 def get_db():
-  db = SessionLocal()
-  try:
-    yield db
-  finally:
-    db.close()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+connected_clients = set()
 
 @app.get("/")
 async def root():
-  try:
     return {"message": "Hello World"}
-  except Exception as e:
-    logger.error(f"Error in root endpoint: {e}")
-    raise HTTPException(status_code=500, detail="Internal server error")
 
-# API to get all routes
+
 @app.get("/routes")
 def get_routes(db: Session = Depends(get_db)):
   try:
@@ -52,7 +52,7 @@ def get_routes(db: Session = Depends(get_db)):
     logger.error(f"Error fetching routes: {e}")
     return {"error": "Failed to retrieve routes"}
 
-# API to get a specific route by its ID
+
 @app.get("/routes/{route_id}")
 def get_route(route_id: str, db: Session = Depends(get_db)):
   try:
@@ -64,7 +64,7 @@ def get_route(route_id: str, db: Session = Depends(get_db)):
     logger.error(f"Error fetching route {route_id}: {e}")
     return {"error": "Failed to retrieve route"}
 
-# API to get stops for a specific route
+
 @app.get("/stops")
 def get_stops(db: Session = Depends(get_db)):
   try:
@@ -74,6 +74,7 @@ def get_stops(db: Session = Depends(get_db)):
     logger.error(f"Error fetching stops: {e}")
     return {"error": "Failed to retrieve stops"}
   
+
 @app.get("/all-routes/details")
 def get_all_routes_details(db: Session = Depends(get_db)):
     try:
@@ -126,18 +127,9 @@ def get_all_routes_details(db: Session = Depends(get_db)):
         logger.error(f"Error fetching all route details: {e}")
         return {"error": "Failed to retrieve route details"}
 
-# Real-time data parsing function from .pb file
-def load_pb_file(file_path):
-  with open(file_path, "rb") as f:
-    feed = FeedMessage()
-    feed.ParseFromString(f.read())
-  return feed
-  
-# Real-time data fetching function with enhanced error logging
-def load_pb_from_url(url):
+async def load_pb_from_url(url):
     try:
         response = requests.get(url)
-        print("response", response)
         response.raise_for_status()
         feed = FeedMessage()
         feed.ParseFromString(response.content)
@@ -145,18 +137,17 @@ def load_pb_from_url(url):
     except Exception as e:
         logger.error(f"Error loading data from URL {url}: {e}")
         logger.debug(traceback.format_exc())
-        raise HTTPException(status_code=500, detail="Failed to load real-time data")
+        return None
 
-# Real-time Positions Endpoint (without route query parameter)
-@app.get("/real-time-positions")
-def get_real_time_positions(db: Session = Depends(get_db)):
+async def fetch_bus_positions(db: Session):
     try:
-        # Load the real-time vehicle positions from the positions API
         url = GTFS_REAL_TIME_POSITION_UPDATES_URL
-        feed = load_pb_from_url(url)
-
-        # Prepare the vehicle positions with route information
+        feed = await load_pb_from_url(url)
         positions = []
+
+        if not feed:
+            return {"positions": []}
+
         for entity in feed.entity:
             if entity.HasField("vehicle"):
                 vehicle_id = entity.vehicle.vehicle.id
@@ -167,12 +158,11 @@ def get_real_time_positions(db: Session = Depends(get_db)):
                 current_stop_sequence = entity.vehicle.current_stop_sequence
                 current_status = entity.vehicle.current_status
 
-                # Get route information for this trip_id
+                # Get route information from trip_id
                 trip = db.query(Trip).filter(Trip.trip_id == trip_id).first()
                 if trip:
                     route = db.query(Route).filter(Route.route_id == trip.route_id).first()
                     if route:
-                        # Add the position data along with route details
                         positions.append({
                             "vehicle_id": vehicle_id,
                             "trip_id": trip_id,
@@ -186,13 +176,38 @@ def get_real_time_positions(db: Session = Depends(get_db)):
                             "route_long_name": route.route_long_name,
                             "route_color": route.route_color
                         })
-
         return {"positions": positions}
     except Exception as e:
         logger.error(f"Error fetching real-time positions: {e}")
-        return {"error": "Failed to retrieve real-time positions"}
+        return {"positions": []}
 
-# Real-time Trips Endpoint
+# WebSocket endpoint for real-time bus positions
+@app.websocket("/ws/bus-positions")
+async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+    await websocket.accept()
+    connected_clients.add(websocket)
+    logger.info("Client connected")
+
+    try:
+        while True:
+            # Fetch latest bus positions
+            bus_positions = await fetch_bus_positions(db)
+            if bus_positions:
+                message = json.dumps(bus_positions)
+                await websocket.send_text(message)
+            await asyncio.sleep(2)  # Send updates every 2 seconds
+    except WebSocketDisconnect:
+        logger.info("Client disconnected")
+        connected_clients.remove(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        connected_clients.remove(websocket)
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    for client in connected_clients:
+        await client.close()
+
 @app.get("/real-time-trips")
 def get_real_time_trips():
     try:
