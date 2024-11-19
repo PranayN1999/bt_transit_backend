@@ -81,46 +81,87 @@ def get_all_routes_details(db: Session = Depends(get_db)):
         # Fetch all routes
         routes = db.query(Route).all()
         logger.debug(f"Fetched routes: {routes}")
-        
+
         if not routes:
-            logger.debug(f"Fetched routes: {routes}")
             raise HTTPException(status_code=404, detail="No routes found")
 
         # Collect details for each route
         routes_details = []
         for route in routes:
-            # Find the trip associated with the route to get the shape_id
-            trip = db.query(Trip).filter(Trip.route_id == route.route_id).first()
-            if not trip:
-                logger.debug(f"No trip found for route {route.route_id}")
-                continue  # Skip if no trip found for this route
+            # Find all trips associated with the route to get all shape_ids
+            trips = db.query(Trip).filter(Trip.route_id == route.route_id).all()
+            if not trips:
+                logger.debug(f"No trips found for route {route.route_id}")
+                continue  # Skip if no trips found for this route
 
-            shape_id = trip.shape_id
+            # Get all unique shape IDs from the trips
+            unique_shape_ids = list({trip.shape_id for trip in trips if trip.shape_id})
+            logger.debug(f"Unique shape IDs for route {route.route_id}: {unique_shape_ids}")
 
             # Get shape data for the route
-            shape = db.query(Shape).filter(Shape.shape_id == shape_id).all()
-            shape_coordinates = [{"latitude": s.shape_pt_lat, "longitude": s.shape_pt_lon} for s in shape]
-            logger.debug(f"Shape coordinates for route {route.route_id}: {shape_coordinates}")
+            all_shapes = []
+            for shape_id in unique_shape_ids:
+                shape = (
+                    db.query(Shape)
+                    .filter(Shape.shape_id == shape_id)
+                    .order_by(Shape.shape_pt_sequence)
+                    .all()
+                )
+                shape_coordinates = [
+                    {
+                        "latitude": s.shape_pt_lat,
+                        "longitude": s.shape_pt_lon,
+                        "sequence": s.shape_pt_sequence,
+                        "shape_id": s.shape_id
+                    }
+                    for s in shape
+                ]
+                all_shapes.extend(shape_coordinates)
 
-            # Get stop_ids from stop_times using the trip_id
-            stop_times = db.query(StopTime).filter(StopTime.trip_id == trip.trip_id).all()
-            stop_ids = [st.stop_id for st in stop_times]
+            logger.debug(f"Shape coordinates for route {route.route_id}: {all_shapes}")
 
-            # Get stop details using stop_ids
-            stops = db.query(Stop).filter(Stop.stop_id.in_(stop_ids)).all()
-            stop_coordinates = [{"latitude": stop.stop_lat, "longitude": stop.stop_lon, "name": stop.stop_name} for stop in stops]
+            # Get all stop_ids from all trips
+            all_stop_ids = set()
+            stop_times_map = {}
+            for trip in trips:
+                stop_times = (
+                    db.query(StopTime)
+                    .filter(StopTime.trip_id == trip.trip_id)
+                    .order_by(StopTime.stop_sequence)
+                    .all()
+                )
+                for st in stop_times:
+                    all_stop_ids.add(st.stop_id)
+                    stop_times_map[st.stop_id] = st.stop_sequence
+
+            # Get stop details using unique stop_ids
+            stops = (
+                db.query(Stop)
+                .filter(Stop.stop_id.in_(all_stop_ids))
+                .all()
+            )
+            stop_coordinates = [
+                {
+                    "latitude": stop.stop_lat,
+                    "longitude": stop.stop_lon,
+                    "name": stop.stop_name,
+                    "sequence": stop_times_map.get(stop.stop_id),  # Include stop sequence
+                }
+                for stop in stops
+            ]
+            stop_coordinates = sorted(stop_coordinates, key=lambda x: x["sequence"])
             logger.debug(f"Stop coordinates for route {route.route_id}: {stop_coordinates}")
 
             # Append route details
             routes_details.append({
                 "route": route,
-                "shape": shape_coordinates,
-                "stops": stop_coordinates
+                "shape": all_shapes,
+                "stops": stop_coordinates,
             })
 
         if not routes_details:
             raise HTTPException(status_code=404, detail="No route details found")
-        
+
         return {"routes": routes_details}
 
     except Exception as e:
