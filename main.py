@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import engine, SessionLocal
-from models import Base, Route, Stop, Shape, Trip, StopTime
+from models import Base, Route, Stop, Shape, Trip, StopTime, Calendar
 from gtfs_realtime_pb2 import FeedMessage
 import requests
 import json
@@ -10,6 +10,7 @@ import asyncio
 from fastapi.middleware.cors import CORSMiddleware
 from envConfig import GTFS_REAL_TIME_POSITION_UPDATES_URL, GTFS_REAL_TIME_TRIP_UPDATES_URL, GTFS_REAL_TIME_ALERTS_URL
 import traceback
+from datetime import date
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -144,13 +145,10 @@ def get_all_routes_details(db: Session = Depends(get_db)):
                 {
                     "latitude": stop.stop_lat,
                     "longitude": stop.stop_lon,
-                    "name": stop.stop_name,
-                    "sequence": stop_times_map.get(stop.stop_id),  # Include stop sequence
+                    "stop_name": stop.stop_name,
                 }
                 for stop in stops
             ]
-            stop_coordinates = sorted(stop_coordinates, key=lambda x: x["sequence"])
-            logger.debug(f"Stop coordinates for route {route.route_id}: {stop_coordinates}")
 
             # Append route details
             routes_details.append({
@@ -306,3 +304,78 @@ def get_real_time_alerts():
         logger.error(f"Error fetching real-time alerts: {e}")
         logger.debug(traceback.format_exc())
         return {"error": "Failed to retrieve real-time alerts"}
+    
+@app.get("/routes/{route_id}/schedule")
+def get_route_schedule(route_id: str, db: Session = Depends(get_db)):
+    try:
+        service_date = date.today()
+
+        # Get weekday name in lowercase (e.g., 'monday', 'tuesday')
+        weekday = service_date.strftime('%A').lower()
+
+        # Fetch services active on the current date
+        active_services = db.query(Calendar).filter(
+            getattr(Calendar, weekday) == True,
+            Calendar.start_date <= service_date,
+            Calendar.end_date >= service_date
+        ).all()
+
+        if not active_services:
+            return {"schedule": [], "message": "No active services today."}
+
+        service_ids = [service.service_id for service in active_services]
+
+        # Fetch trips for the route with active service IDs
+        trips = db.query(Trip).filter(
+            Trip.route_id == route_id,
+            Trip.service_id.in_(service_ids)
+        ).all()
+
+        if not trips:
+            return {"schedule": [], "message": "No trips found for this route today."}
+
+        trip_ids = [trip.trip_id for trip in trips]
+
+        # Fetch stop times for these trips
+        stop_times = db.query(StopTime).filter(
+            StopTime.trip_id.in_(trip_ids)
+        ).order_by(
+            StopTime.trip_id,
+            StopTime.stop_sequence
+        ).all()
+
+        # Fetch stops information
+        stop_ids = list(set([st.stop_id for st in stop_times]))
+        stops = db.query(Stop).filter(Stop.stop_id.in_(stop_ids)).all()
+        stop_map = {stop.stop_id: stop for stop in stops}
+
+        # Organize schedule data
+        schedule = []
+        for trip in trips:
+            trip_stop_times = [st for st in stop_times if st.trip_id == trip.trip_id]
+            trip_schedule = {
+                "trip_id": trip.trip_id,
+                "trip_headsign": trip.trip_headsign,
+                "direction_id": trip.direction_id,
+                "stop_times": []
+            }
+            for st in trip_stop_times:
+                stop = stop_map.get(st.stop_id)
+                if not stop:
+                    continue
+                trip_schedule["stop_times"].append({
+                    "stop_id": st.stop_id,
+                    "stop_name": stop.stop_name,
+                    "arrival_time": st.arrival_time,
+                    "departure_time": st.departure_time,
+                    "stop_sequence": st.stop_sequence  # Include stop_sequence
+                })
+            schedule.append(trip_schedule)
+
+        return {"schedule": schedule}
+
+    except Exception as e:
+        print(f"Error fetching schedule for route {route_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to retrieve schedule")
+    
