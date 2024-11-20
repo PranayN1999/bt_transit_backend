@@ -8,7 +8,11 @@ import requests
 import json
 import asyncio
 from fastapi.middleware.cors import CORSMiddleware
-from envConfig import GTFS_REAL_TIME_POSITION_UPDATES_URL, GTFS_REAL_TIME_TRIP_UPDATES_URL, GTFS_REAL_TIME_ALERTS_URL
+from envConfig import (
+    GTFS_REAL_TIME_POSITION_UPDATES_URL,
+    GTFS_REAL_TIME_TRIP_UPDATES_URL,
+    GTFS_REAL_TIME_ALERTS_URL,
+)
 import traceback
 from datetime import date
 
@@ -30,6 +34,7 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -37,7 +42,9 @@ def get_db():
     finally:
         db.close()
 
+
 connected_clients = set()
+
 
 @app.get("/")
 async def root():
@@ -46,35 +53,35 @@ async def root():
 
 @app.get("/routes")
 def get_routes(db: Session = Depends(get_db)):
-  try:
-    routes = db.query(Route).all()
-    return routes
-  except Exception as e:
-    logger.error(f"Error fetching routes: {e}")
-    return {"error": "Failed to retrieve routes"}
+    try:
+        routes = db.query(Route).all()
+        return routes
+    except Exception as e:
+        logger.error(f"Error fetching routes: {e}")
+        return {"error": "Failed to retrieve routes"}
 
 
 @app.get("/routes/{route_id}")
 def get_route(route_id: str, db: Session = Depends(get_db)):
-  try:
-    route = db.query(Route).filter(Route.route_id == route_id).first()
-    if route is None:
-      raise HTTPException(status_code=404, detail="Route not found")
-    return route
-  except Exception as e:
-    logger.error(f"Error fetching route {route_id}: {e}")
-    return {"error": "Failed to retrieve route"}
+    try:
+        route = db.query(Route).filter(Route.route_id == route_id).first()
+        if route is None:
+            raise HTTPException(status_code=404, detail="Route not found")
+        return route
+    except Exception as e:
+        logger.error(f"Error fetching route {route_id}: {e}")
+        return {"error": "Failed to retrieve route"}
 
 
 @app.get("/stops")
 def get_stops(db: Session = Depends(get_db)):
-  try:
-    stops = db.query(Stop).all()
-    return stops
-  except Exception as e:
-    logger.error(f"Error fetching stops: {e}")
-    return {"error": "Failed to retrieve stops"}
-  
+    try:
+        stops = db.query(Stop).all()
+        return stops
+    except Exception as e:
+        logger.error(f"Error fetching stops: {e}")
+        return {"error": "Failed to retrieve stops"}
+
 
 @app.get("/all-routes/details")
 def get_all_routes_details(db: Session = Depends(get_db)):
@@ -97,7 +104,9 @@ def get_all_routes_details(db: Session = Depends(get_db)):
 
             # Get all unique shape IDs from the trips
             unique_shape_ids = list({trip.shape_id for trip in trips if trip.shape_id})
-            logger.debug(f"Unique shape IDs for route {route.route_id}: {unique_shape_ids}")
+            logger.debug(
+                f"Unique shape IDs for route {route.route_id}: {unique_shape_ids}"
+            )
 
             # Get shape data for the route
             all_shapes = []
@@ -113,7 +122,7 @@ def get_all_routes_details(db: Session = Depends(get_db)):
                         "latitude": s.shape_pt_lat,
                         "longitude": s.shape_pt_lon,
                         "sequence": s.shape_pt_sequence,
-                        "shape_id": s.shape_id
+                        "shape_id": s.shape_id,
                     }
                     for s in shape
                 ]
@@ -136,11 +145,7 @@ def get_all_routes_details(db: Session = Depends(get_db)):
                     stop_times_map[st.stop_id] = st.stop_sequence
 
             # Get stop details using unique stop_ids
-            stops = (
-                db.query(Stop)
-                .filter(Stop.stop_id.in_(all_stop_ids))
-                .all()
-            )
+            stops = db.query(Stop).filter(Stop.stop_id.in_(all_stop_ids)).all()
             stop_coordinates = [
                 {
                     "latitude": stop.stop_lat,
@@ -151,11 +156,13 @@ def get_all_routes_details(db: Session = Depends(get_db)):
             ]
 
             # Append route details
-            routes_details.append({
-                "route": route,
-                "shape": all_shapes,
-                "stops": stop_coordinates,
-            })
+            routes_details.append(
+                {
+                    "route": route,
+                    "shape": all_shapes,
+                    "stops": stop_coordinates,
+                }
+            )
 
         if not routes_details:
             raise HTTPException(status_code=404, detail="No route details found")
@@ -165,6 +172,7 @@ def get_all_routes_details(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error fetching all route details: {e}")
         return {"error": "Failed to retrieve route details"}
+
 
 async def load_pb_from_url(url):
     try:
@@ -177,6 +185,7 @@ async def load_pb_from_url(url):
         logger.error(f"Error loading data from URL {url}: {e}")
         logger.debug(traceback.format_exc())
         return None
+
 
 async def fetch_bus_positions(db: Session):
     try:
@@ -202,23 +211,26 @@ async def fetch_bus_positions(db: Session):
                 if trip:
                     route = db.query(Route).filter(Route.route_id == trip.route_id).first()
                     if route:
-                        positions.append({
-                            "vehicle_id": vehicle_id,
-                            "trip_id": trip_id,
-                            "latitude": latitude,
-                            "longitude": longitude,
-                            "bearing": bearing,
-                            "current_stop_sequence": current_stop_sequence,
-                            "current_status": current_status,
-                            "route_id": route.route_id,
-                            "route_short_name": route.route_short_name,
-                            "route_long_name": route.route_long_name,
-                            "route_color": route.route_color
-                        })
+                        positions.append(
+                            {
+                                "vehicle_id": vehicle_id,
+                                "trip_id": trip_id,
+                                "latitude": latitude,
+                                "longitude": longitude,
+                                "bearing": bearing,
+                                "current_stop_sequence": current_stop_sequence,
+                                "current_status": current_status,
+                                "route_id": route.route_id,
+                                "route_short_name": route.route_short_name,
+                                "route_long_name": route.route_long_name,
+                                "route_color": route.route_color,
+                            }
+                        )
         return {"positions": positions}
     except Exception as e:
         logger.error(f"Error fetching real-time positions: {e}")
         return {"positions": []}
+
 
 # WebSocket endpoint for real-time bus positions
 @app.websocket("/ws/bus-positions")
@@ -227,13 +239,45 @@ async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)
     connected_clients.add(websocket)
     logger.info("Client connected")
 
+    previous_positions = {}  # Keyed by vehicle_id
+
+    def positions_are_different(pos1, pos2):
+        lat1, lon1 = pos1
+        lat2, lon2 = pos2
+        # Compare positions rounded to 6 decimal places to avoid minor floating-point differences
+        return round(lat1, 6) != round(lat2, 6) or round(lon1, 6) != round(lon2, 6)
+
     try:
         while True:
             # Fetch latest bus positions
             bus_positions = await fetch_bus_positions(db)
             if bus_positions:
-                message = json.dumps(bus_positions)
-                await websocket.send_text(message)
+                positions_changed = False
+                current_positions = {}
+
+                for bus in bus_positions["positions"]:
+                    vehicle_id = bus["vehicle_id"]
+                    current_position = (bus["latitude"], bus["longitude"])
+                    previous_position = previous_positions.get(vehicle_id)
+
+                    # Check if positions are different
+                    if previous_position is None or positions_are_different(
+                        previous_position, current_position
+                    ):
+                        positions_changed = True
+                        # Update current_positions
+                        current_positions[vehicle_id] = current_position
+                    else:
+                        # No change, keep previous position
+                        current_positions[vehicle_id] = previous_position
+
+                if positions_changed:
+                    message = json.dumps(bus_positions)
+                    await websocket.send_text(message)
+
+                # Update previous_positions
+                previous_positions = current_positions
+
             await asyncio.sleep(2)  # Send updates every 2 seconds
     except WebSocketDisconnect:
         logger.info("Client disconnected")
@@ -242,10 +286,12 @@ async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)
         logger.error(f"WebSocket error: {e}")
         connected_clients.remove(websocket)
 
+
 @app.on_event("shutdown")
 async def on_shutdown():
     for client in connected_clients:
         await client.close()
+
 
 @app.get("/real-time-trips")
 def get_real_time_trips():
@@ -262,18 +308,20 @@ def get_real_time_trips():
                     {
                         "stop_id": update.stop_id,
                         "arrival": update.arrival.time if update.HasField("arrival") else None,
-                        "departure": update.departure.time if update.HasField("departure") else None
+                        "departure": update.departure.time if update.HasField("departure") else None,
                     }
                     for update in entity.trip_update.stop_time_update
-                ]
+                ],
             }
-            for entity in feed.entity if entity.HasField("trip_update")
+            for entity in feed.entity
+            if entity.HasField("trip_update")
         ]
         return {"trips": trips}
     except Exception as e:
         logger.error(f"Error fetching real-time trips: {e}")
         logger.debug(traceback.format_exc())
         return {"error": "Failed to retrieve real-time trips"}
+
 
 # Real-time Alerts Endpoint
 @app.get("/real-time-alerts")
@@ -286,39 +334,49 @@ def get_real_time_alerts():
                 "alert_id": entity.id,
                 "cause": entity.alert.cause,
                 "effect": entity.alert.effect,
-                "header_text": entity.alert.header_text.translation[0].text if entity.alert.header_text.translation else None,
-                "description_text": entity.alert.description_text.translation[0].text if entity.alert.description_text.translation else None,
+                "header_text": entity.alert.header_text.translation[0].text
+                if entity.alert.header_text.translation
+                else None,
+                "description_text": entity.alert.description_text.translation[0].text
+                if entity.alert.description_text.translation
+                else None,
                 "informed_entity": [
                     {
                         "agency_id": informed.agency_id,
                         "route_id": informed.route_id,
-                        "stop_id": informed.stop_id
+                        "stop_id": informed.stop_id,
                     }
                     for informed in entity.alert.informed_entity
-                ]
+                ],
             }
-            for entity in feed.entity if entity.HasField("alert")
+            for entity in feed.entity
+            if entity.HasField("alert")
         ]
         return {"alerts": alerts}
     except Exception as e:
         logger.error(f"Error fetching real-time alerts: {e}")
         logger.debug(traceback.format_exc())
         return {"error": "Failed to retrieve real-time alerts"}
-    
+
+
 @app.get("/routes/{route_id}/schedule")
 def get_route_schedule(route_id: str, db: Session = Depends(get_db)):
     try:
         service_date = date.today()
 
         # Get weekday name in lowercase (e.g., 'monday', 'tuesday')
-        weekday = service_date.strftime('%A').lower()
+        weekday = service_date.strftime("%A").lower()
 
         # Fetch services active on the current date
-        active_services = db.query(Calendar).filter(
-            getattr(Calendar, weekday) == True,
-            Calendar.start_date <= service_date,
-            Calendar.end_date >= service_date
-        ).all()
+        active_services = (
+            db.query(Calendar)
+            .filter(
+                getattr(Calendar, weekday) == True,
+                Calendar.start_date <= service_date,
+                Calendar.end_date >= service_date,
+            )
+            .all()
+        )
 
         if not active_services:
             return {"schedule": [], "message": "No active services today."}
@@ -326,10 +384,11 @@ def get_route_schedule(route_id: str, db: Session = Depends(get_db)):
         service_ids = [service.service_id for service in active_services]
 
         # Fetch trips for the route with active service IDs
-        trips = db.query(Trip).filter(
-            Trip.route_id == route_id,
-            Trip.service_id.in_(service_ids)
-        ).all()
+        trips = (
+            db.query(Trip)
+            .filter(Trip.route_id == route_id, Trip.service_id.in_(service_ids))
+            .all()
+        )
 
         if not trips:
             return {"schedule": [], "message": "No trips found for this route today."}
@@ -337,12 +396,12 @@ def get_route_schedule(route_id: str, db: Session = Depends(get_db)):
         trip_ids = [trip.trip_id for trip in trips]
 
         # Fetch stop times for these trips
-        stop_times = db.query(StopTime).filter(
-            StopTime.trip_id.in_(trip_ids)
-        ).order_by(
-            StopTime.trip_id,
-            StopTime.stop_sequence
-        ).all()
+        stop_times = (
+            db.query(StopTime)
+            .filter(StopTime.trip_id.in_(trip_ids))
+            .order_by(StopTime.trip_id, StopTime.stop_sequence)
+            .all()
+        )
 
         # Fetch stops information
         stop_ids = list(set([st.stop_id for st in stop_times]))
@@ -357,19 +416,21 @@ def get_route_schedule(route_id: str, db: Session = Depends(get_db)):
                 "trip_id": trip.trip_id,
                 "trip_headsign": trip.trip_headsign,
                 "direction_id": trip.direction_id,
-                "stop_times": []
+                "stop_times": [],
             }
             for st in trip_stop_times:
                 stop = stop_map.get(st.stop_id)
                 if not stop:
                     continue
-                trip_schedule["stop_times"].append({
-                    "stop_id": st.stop_id,
-                    "stop_name": stop.stop_name,
-                    "arrival_time": st.arrival_time,
-                    "departure_time": st.departure_time,
-                    "stop_sequence": st.stop_sequence  # Include stop_sequence
-                })
+                trip_schedule["stop_times"].append(
+                    {
+                        "stop_id": st.stop_id,
+                        "stop_name": stop.stop_name,
+                        "arrival_time": st.arrival_time,
+                        "departure_time": st.departure_time,
+                        "stop_sequence": st.stop_sequence,  # Include stop_sequence
+                    }
+                )
             schedule.append(trip_schedule)
 
         return {"schedule": schedule}
@@ -378,4 +439,3 @@ def get_route_schedule(route_id: str, db: Session = Depends(get_db)):
         print(f"Error fetching schedule for route {route_id}: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to retrieve schedule")
-    
