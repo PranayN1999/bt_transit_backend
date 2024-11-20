@@ -5,6 +5,10 @@ from models import Agency
 from create_tables import create_tables
 from envConfig import GTFS_ROOT_FILE_PATH
 
+# Reference: https://dnmtechs.com/loading-csv-file-into-database-using-sqlalchemy-in-python-3/
+# Regerence: https://iifx.dev/en/articles/167606266
+# Used this for all the load scripts
+
 def load_agency_data():
   # Read the agency.txt file into a pandas DataFrame
   df = pd.read_csv(GTFS_ROOT_FILE_PATH + '/agency.txt')

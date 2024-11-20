@@ -3,7 +3,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPExcept
 from sqlalchemy.orm import Session
 from database import engine, SessionLocal
 from models import Base, Route, Stop, Shape, Trip, StopTime, Calendar
-from gtfs_realtime_pb2 import FeedMessage
+from gtfs_realtime_pb2 import FeedMessage  # For parsing GTFS-realtime data
 import requests
 import json
 import asyncio
@@ -16,12 +16,14 @@ from envConfig import (
 import traceback
 from datetime import date
 
-# Set up logging
+# Set up logging for debugging and tracking application behavior
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize FastAPI application
 app = FastAPI()
 
+# Configure CORS (Cross-Origin Resource Sharing) to allow all origins
 origins = ["*"]
 
 app.add_middleware(
@@ -32,9 +34,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Create database tables from models
 Base.metadata.create_all(bind=engine)
 
-
+# Dependency for managing database sessions
+# Ensures each request uses a clean session
 def get_db():
     db = SessionLocal()
     try:
@@ -42,17 +46,20 @@ def get_db():
     finally:
         db.close()
 
-
+# Track active WebSocket clients
 connected_clients = set()
 
-
+# Root endpoint to verify server status
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
-
+# Endpoint to retrieve all routes
 @app.get("/routes")
 def get_routes(db: Session = Depends(get_db)):
+    """
+    Fetch all available routes from the database.
+    """
     try:
         routes = db.query(Route).all()
         return routes
@@ -60,9 +67,12 @@ def get_routes(db: Session = Depends(get_db)):
         logger.error(f"Error fetching routes: {e}")
         return {"error": "Failed to retrieve routes"}
 
-
+# Endpoint to retrieve a specific route by its ID
 @app.get("/routes/{route_id}")
 def get_route(route_id: str, db: Session = Depends(get_db)):
+    """
+    Fetch a specific route by its unique route_id.
+    """
     try:
         route = db.query(Route).filter(Route.route_id == route_id).first()
         if route is None:
@@ -72,9 +82,12 @@ def get_route(route_id: str, db: Session = Depends(get_db)):
         logger.error(f"Error fetching route {route_id}: {e}")
         return {"error": "Failed to retrieve route"}
 
-
+# Endpoint to retrieve all stops
 @app.get("/stops")
 def get_stops(db: Session = Depends(get_db)):
+    """
+    Fetch all stops available in the database.
+    """
     try:
         stops = db.query(Stop).all()
         return stops
@@ -82,70 +95,52 @@ def get_stops(db: Session = Depends(get_db)):
         logger.error(f"Error fetching stops: {e}")
         return {"error": "Failed to retrieve stops"}
 
-
+# Endpoint to retrieve details for all routes, including shapes and stops
+# Reference: Example of handling database relationships and nested queries
+# URL: https://docs.sqlalchemy.org/en/14/orm/tutorial.html#working-with-related-objects
 @app.get("/all-routes/details")
 def get_all_routes_details(db: Session = Depends(get_db)):
+    """
+    Fetch detailed information for all routes, including shapes and stops.
+    """
     try:
-        # Fetch all routes
         routes = db.query(Route).all()
-        logger.debug(f"Fetched routes: {routes}")
-
         if not routes:
             raise HTTPException(status_code=404, detail="No routes found")
 
-        # Collect details for each route
-        routes_details = []
+        routes_details = []  # Store details for all routes
+
         for route in routes:
-            # Find all trips associated with the route to get all shape_ids
+            # Retrieve trips associated with the route
             trips = db.query(Trip).filter(Trip.route_id == route.route_id).all()
             if not trips:
-                logger.debug(f"No trips found for route {route.route_id}")
-                continue  # Skip if no trips found for this route
+                continue
 
-            # Get all unique shape IDs from the trips
+            # Collect shape details for each trip
             unique_shape_ids = list({trip.shape_id for trip in trips if trip.shape_id})
-            logger.debug(
-                f"Unique shape IDs for route {route.route_id}: {unique_shape_ids}"
-            )
+            all_shapes = [
+                {
+                    "latitude": shape.shape_pt_lat,
+                    "longitude": shape.shape_pt_lon,
+                    "sequence": shape.shape_pt_sequence,
+                    "shape_id": shape.shape_id,
+                }
+                for shape_id in unique_shape_ids
+                for shape in db.query(Shape)
+                .filter(Shape.shape_id == shape_id)
+                .order_by(Shape.shape_pt_sequence)
+                .all()
+            ]
 
-            # Get shape data for the route
-            all_shapes = []
-            for shape_id in unique_shape_ids:
-                shape = (
-                    db.query(Shape)
-                    .filter(Shape.shape_id == shape_id)
-                    .order_by(Shape.shape_pt_sequence)
-                    .all()
-                )
-                shape_coordinates = [
-                    {
-                        "latitude": s.shape_pt_lat,
-                        "longitude": s.shape_pt_lon,
-                        "sequence": s.shape_pt_sequence,
-                        "shape_id": s.shape_id,
-                    }
-                    for s in shape
-                ]
-                all_shapes.extend(shape_coordinates)
-
-            logger.debug(f"Shape coordinates for route {route.route_id}: {all_shapes}")
-
-            # Get all stop_ids from all trips
-            all_stop_ids = set()
-            stop_times_map = {}
-            for trip in trips:
-                stop_times = (
-                    db.query(StopTime)
-                    .filter(StopTime.trip_id == trip.trip_id)
-                    .order_by(StopTime.stop_sequence)
-                    .all()
-                )
-                for st in stop_times:
-                    all_stop_ids.add(st.stop_id)
-                    stop_times_map[st.stop_id] = st.stop_sequence
-
-            # Get stop details using unique stop_ids
-            stops = db.query(Stop).filter(Stop.stop_id.in_(all_stop_ids)).all()
+            # Collect stop details for each trip
+            stop_ids = {
+                stop_time.stop_id
+                for trip in trips
+                for stop_time in db.query(StopTime).filter(
+                    StopTime.trip_id == trip.trip_id
+                ).all()
+            }
+            stops = db.query(Stop).filter(Stop.stop_id.in_(stop_ids)).all()
             stop_coordinates = [
                 {
                     "latitude": stop.stop_lat,
@@ -155,7 +150,7 @@ def get_all_routes_details(db: Session = Depends(get_db)):
                 for stop in stops
             ]
 
-            # Append route details
+            # Combine route, shape, and stop data
             routes_details.append(
                 {
                     "route": route,
@@ -168,13 +163,17 @@ def get_all_routes_details(db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="No route details found")
 
         return {"routes": routes_details}
-
     except Exception as e:
         logger.error(f"Error fetching all route details: {e}")
         return {"error": "Failed to retrieve route details"}
 
-
+# Function to load GTFS-realtime protocol buffer data from a URL
+# Reference: Parsing GTFS-realtime data using Python Protobuf
+# URL: https://github.com/MobilityData/gtfs-realtime-bindings/blob/master/python/README.md
 async def load_pb_from_url(url):
+    """
+    Load GTFS-realtime data from the specified URL.
+    """
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -186,8 +185,13 @@ async def load_pb_from_url(url):
         logger.debug(traceback.format_exc())
         return None
 
-
+# Function to fetch and process bus positions
+# Reference: Parsing vehicle position updates in GTFS-realtime
+# URL: https://github.com/MobilityData/gtfs-realtime-bindings/blob/master/python/README.md
 async def fetch_bus_positions(db: Session):
+    """
+    Fetch real-time bus positions from GTFS-realtime feed and associate them with routes.
+    """
     try:
         url = GTFS_REAL_TIME_POSITION_UPDATES_URL
         feed = await load_pb_from_url(url)
@@ -203,10 +207,8 @@ async def fetch_bus_positions(db: Session):
                 latitude = entity.vehicle.position.latitude
                 longitude = entity.vehicle.position.longitude
                 bearing = entity.vehicle.position.bearing
-                current_stop_sequence = entity.vehicle.current_stop_sequence
-                current_status = entity.vehicle.current_status
 
-                # Get route information from trip_id
+                # Fetch route details for the trip
                 trip = db.query(Trip).filter(Trip.trip_id == trip_id).first()
                 if trip:
                     route = db.query(Route).filter(Route.route_id == trip.route_id).first()
@@ -214,15 +216,11 @@ async def fetch_bus_positions(db: Session):
                         positions.append(
                             {
                                 "vehicle_id": vehicle_id,
-                                "trip_id": trip_id,
                                 "latitude": latitude,
                                 "longitude": longitude,
                                 "bearing": bearing,
-                                "current_stop_sequence": current_stop_sequence,
-                                "current_status": current_status,
                                 "route_id": route.route_id,
                                 "route_short_name": route.route_short_name,
-                                "route_long_name": route.route_long_name,
                                 "route_color": route.route_color,
                             }
                         )
@@ -231,10 +229,14 @@ async def fetch_bus_positions(db: Session):
         logger.error(f"Error fetching real-time positions: {e}")
         return {"positions": []}
 
-
-# WebSocket endpoint for real-time bus positions
+# WebSocket endpoint to stream real-time bus positions
+# Reference: FastAPI WebSocket usage
+# URL: https://fastapi.tiangolo.com/advanced/websockets/
 @app.websocket("/ws/bus-positions")
 async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+    """
+    Provide real-time bus positions through a WebSocket connection.
+    """
     await websocket.accept()
     connected_clients.add(websocket)
     logger.info("Client connected")
@@ -249,7 +251,7 @@ async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)
 
     try:
         while True:
-            # Fetch latest bus positions
+            # Fetch the latest positions and send to client
             bus_positions = await fetch_bus_positions(db)
             if bus_positions:
                 positions_changed = False
@@ -271,6 +273,7 @@ async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)
                         # No change, keep previous position
                         current_positions[vehicle_id] = previous_position
 
+                # Send to front end only if there are any changes
                 if positions_changed:
                     message = json.dumps(bus_positions)
                     await websocket.send_text(message)
@@ -286,7 +289,7 @@ async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)
         logger.error(f"WebSocket error: {e}")
         connected_clients.remove(websocket)
 
-
+# Shutdown handler to close WebSocket connections gracefully
 @app.on_event("shutdown")
 async def on_shutdown():
     for client in connected_clients:

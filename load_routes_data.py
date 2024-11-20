@@ -6,6 +6,10 @@ from models import Route
 from create_tables import create_tables
 from envConfig import GTFS_ROOT_FILE_PATH
 
+# Reference: https://dnmtechs.com/loading-csv-file-into-database-using-sqlalchemy-in-python-3/
+# Regerence: https://iifx.dev/en/articles/167606266
+# Used this for all the load scripts
+
 def load_routes_data():
   try:
     # Read the routes.txt file into a pandas DataFrame
